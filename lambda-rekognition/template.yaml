@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  My Image App - Label images
+
+# This is the global definitions
+# In this example the definitions is only for the Lambdas
+Globals:
+  Function:
+    Runtime: python3.6
+    Timeout: 600
+    MemorySize: 1024
+
+Resources:
+  # This is the table to save the image tags
+  ImageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: AppImageTable
+      BillingMode: PAY_PER_REQUEST
+      KeySchema:  # These are the two fields that consists the Primary Key
+        - AttributeName: "image-id"
+          KeyType: "HASH"  # This is the Partition Key
+        - AttributeName: "tag"
+          KeyType: "RANGE"  # This is the sort key
+      AttributeDefinitions:  # For each reference in the KeySchema we have to set the types
+        - AttributeName: "image-id"
+          AttributeType: "S"
+        - AttributeName: "tag"
+          AttributeType: "S"
+
+  # This is the function that send the image to Amazon Rekognition
+  # in order to get the tags. It will be triggered when an image is uploaded to the bucket
+  RecognizeImageFunction:
+    Type: "AWS::Serverless::Function"
+    Properties:
+      CodeUri: src
+      Handler: recognize_image.lambda_handler
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref ImageTable  # This will be passed as an environ variable to Lambda
+      Policies:
+        - S3CrudPolicy:  # With this policy the Lambda has read-write access to the bucket
+            BucketName: !Sub "image-bucket-${AWS::AccountId}/*"
+        - DynamoDBCrudPolicy:  # With this policy the Lambda can red-write to the Table
+            TableName: !Ref ImageTable
+        - AmazonRekognitionReadOnlyAccess
+  ImageBucketPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Ref RecognizeImageFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub arn:aws:s3:::imageresizedicons
+
+Outputs:
+  
+  ImageTable:
+    Description: "The DynamoDB table to save the images"
+    Value: !GetAtt ImageTable.Arn
+  RecognizeImageFunction:
+    Description: "Lambda to tag the image and save to DynamoDB"
+    Value: !GetAtt RecognizeImageFunction.Arn
